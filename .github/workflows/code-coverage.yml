@@ -1,0 +1,34 @@
+name: Code Coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '9.x' # Adjust to your target .NET version
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Run tests with coverage
+        run: dotnet test /src --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Upload code coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-coverage-report
+          path: ./TestResults
