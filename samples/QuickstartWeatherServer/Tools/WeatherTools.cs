@@ -45,9 +45,10 @@ public static class WeatherTools
         jsonElement = await client.GetFromJsonAsync<JsonElement>(forecastUrl);
         var periods = jsonElement.GetProperty("properties").GetProperty("periods").EnumerateArray();
 
-        return periods.Select(period =>
-        {
-            return $"""
+        return string.Join("\n---\n",
+            periods.Select(period =>
+            {
+                return $"""
                     Name: {period.GetProperty("name").GetString()}
                     Start Time: {period.GetProperty("startTime").GetString()}
                     End Time: {period.GetProperty("endTime").GetString()}
@@ -57,6 +58,6 @@ public static class WeatherTools
                     Short Forecast: {period.GetProperty("shortForecast").GetString()}
                     Detailed Forecast: {period.GetProperty("detailedForecast").GetString()}
                     """;
-        }).Aggregate((current, next) => current + "\n--\n" + next);
+            }));
     }
 }
