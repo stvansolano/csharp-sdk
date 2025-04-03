@@ -1,6 +1,8 @@
 ﻿using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol.Types;
 using ModelContextProtocol.Tests.Utils;
+using System.Net;
+using System.Text;
 
 namespace ModelContextProtocol.Tests;
 
@@ -30,13 +32,19 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
             cancellationToken: TestContext.Current.CancellationToken);
     }
 
+    private HttpClient GetHttpClient() =>
+        new()
+        {
+            BaseAddress = new(_fixture.DefaultConfig.Location!),
+        };
+
     [Fact]
     public async Task ConnectAndPing_Sse_TestServer()
     {
         // Arrange
 
         // Act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         await client.PingAsync(TestContext.Current.CancellationToken);
 
         // Assert
@@ -49,7 +57,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // Arrange
 
         // Act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
 
         // Assert
         Assert.NotNull(client.ServerCapabilities);
@@ -62,8 +70,8 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
-        var tools = await client.ListToolsAsync(TestContext.Current.CancellationToken);
+        await using var client = await GetClientAsync();
+        var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(tools);
@@ -75,14 +83,14 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         var result = await client.CallToolAsync(
             "echo",
             new Dictionary<string, object?>
             {
                 ["message"] = "Hello MCP!"
             },
-            TestContext.Current.CancellationToken
+            cancellationToken: TestContext.Current.CancellationToken
         );
 
         // assert
@@ -98,7 +106,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
 
         IList<Resource> allResources = await client.ListResourcesAsync(TestContext.Current.CancellationToken);
 
@@ -112,7 +120,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         // Odd numbered resources are text in the everything server (despite the docs saying otherwise)
         // 1 is index 0, which is "even" in the 0-based index
         // We copied this oddity to the test server
@@ -131,7 +139,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         // Even numbered resources are binary in the everything server (despite the docs saying otherwise)
         // 2 is index 1, which is "odd" in the 0-based index
         // We copied this oddity to the test server
@@ -150,7 +158,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         var prompts = await client.ListPromptsAsync(TestContext.Current.CancellationToken);
 
         // assert
@@ -167,8 +175,8 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
-        var result = await client.GetPromptAsync("simple_prompt", null, TestContext.Current.CancellationToken);
+        await using var client = await GetClientAsync();
+        var result = await client.GetPromptAsync("simple_prompt", null, cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
@@ -181,13 +189,13 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         var arguments = new Dictionary<string, object?>
         {
             { "temperature", "0.7" },
             { "style", "formal" }
         };
-        var result = await client.GetPromptAsync("complex_prompt", arguments, TestContext.Current.CancellationToken);
+        var result = await client.GetPromptAsync("complex_prompt", arguments, cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
@@ -200,9 +208,9 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         // arrange
 
         // act
-        var client = await GetClientAsync();
+        await using var client = await GetClientAsync();
         await Assert.ThrowsAsync<McpClientException>(() =>
-            client.GetPromptAsync("non_existent_prompt", null, TestContext.Current.CancellationToken));
+            client.GetPromptAsync("non_existent_prompt", null, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -215,7 +223,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
         var options = SseServerIntegrationTestFixture.CreateDefaultClientOptions();
         options.Capabilities ??= new();
         options.Capabilities.Sampling ??= new();
-        options.Capabilities.Sampling.SamplingHandler = async (_, _) =>
+        options.Capabilities.Sampling.SamplingHandler = async (_, _, _) =>
         {
             samplingHandlerCalls++;
             return new CreateMessageResult
@@ -229,7 +237,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
                 }
             };
         };
-        var client = await GetClientAsync(options);
+        await using var client = await GetClientAsync(options);
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
 
         // Call the server's sampleLLM tool which should trigger our sampling handler
@@ -238,12 +246,77 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
                 ["prompt"] = "Test prompt",
                 ["maxTokens"] = 100
             },
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
         var textContent = Assert.Single(result.Content);
         Assert.Equal("text", textContent.Type);
         Assert.False(string.IsNullOrEmpty(textContent.Text));
+    }
+
+    [Fact]
+    public async Task CallTool_Sse_EchoServer_Concurrently()
+    {
+        await using var client1 = await GetClientAsync();
+        await using var client2 = await GetClientAsync();
+
+        for (int i = 0; i < 4; i++)
+        {
+            var client = (i % 2 == 0) ? client1 : client2;
+            var result =  await client.CallToolAsync(
+                "echo",
+                new Dictionary<string, object?>
+                {
+                    ["message"] = $"Hello MCP! {i}"
+                },
+                cancellationToken: TestContext.Current.CancellationToken
+            );
+
+            Assert.NotNull(result);
+            Assert.False(result.IsError);
+            var textContent = Assert.Single(result.Content, c => c.Type == "text");
+            Assert.Equal($"Echo: Hello MCP! {i}", textContent.Text);
+        }
+    }
+
+    [Fact]
+    public async Task EventSourceStream_Includes_MessageEventType()
+    {
+        // Simulate our own MCP client handshake using a plain HttpClient so we can look for "event: message"
+        // in the raw SSE response stream which is not exposed by the real MCP client.
+        using var httpClient = GetHttpClient();
+        await using var sseResponse = await httpClient.GetStreamAsync("", TestContext.Current.CancellationToken);
+        using var streamReader = new StreamReader(sseResponse);
+
+        var endpointEvent = await streamReader.ReadLineAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("event: endpoint", endpointEvent);
+
+        var endpointData = await streamReader.ReadLineAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(endpointData);
+        Assert.StartsWith("data: ", endpointData);
+        var messageEndpoint = endpointData["data: ".Length..];
+
+        const string initializeRequest = """
+            {"jsonrpc":"2.0","id":"1","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"IntegrationTestClient","version":"1.0.0"}}}
+            """;
+        using (var initializeRequestBody = new StringContent(initializeRequest, Encoding.UTF8, "application/json"))
+        {
+            var response = await httpClient.PostAsync(messageEndpoint, initializeRequestBody, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        const string initializedNotification = """
+            {"jsonrpc":"2.0","method":"notifications/initialized"}
+            """;
+        using (var initializedNotificationBody = new StringContent(initializedNotification, Encoding.UTF8, "application/json"))
+        {
+            var response = await httpClient.PostAsync(messageEndpoint, initializedNotificationBody, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        Assert.Equal("", await streamReader.ReadLineAsync(TestContext.Current.CancellationToken));
+        var messageEvent = await streamReader.ReadLineAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("event: message", messageEvent);
     }
 }

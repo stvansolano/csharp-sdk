@@ -98,6 +98,27 @@ internal sealed class AIFunctionMcpServerTool : McpServerTool
                     };
                 }
 
+                if (pi.ParameterType == typeof(IProgress<ProgressNotificationValue>))
+                {
+                    // Bind IProgress<ProgressNotificationValue> to the progress token in the request,
+                    // if there is one. If we can't get one, return a nop progress.
+                    return new()
+                    {
+                        ExcludeFromSchema = true,
+                        BindParameter = (pi, args) =>
+                        {
+                            var requestContent = GetRequestContext(args);
+                            if (requestContent?.Server is { } server &&
+                                requestContent?.Params?.Meta?.ProgressToken is { } progressToken)
+                            {
+                                return new TokenProgress(server, progressToken);
+                            }
+
+                            return NullProgress.Instance;
+                        },
+                    };
+                }
+
                 // We assume that if the services used to create the tool support a particular type,
                 // so too do the services associated with the server. This is the same basic assumption
                 // made in ASP.NET.
@@ -234,8 +255,8 @@ internal sealed class AIFunctionMcpServerTool : McpServerTool
         cancellationToken.ThrowIfCancellationRequested();
 
         // TODO: Once we shift to the real AIFunctionFactory, the request should be passed via AIFunctionArguments.Context.
-        Dictionary<string, object?> arguments = request.Params?.Arguments is IDictionary<string, object?> existingArgs ?
-            new(existingArgs) :
+        Dictionary<string, object?> arguments = request.Params?.Arguments is { } paramArgs ?
+            paramArgs.ToDictionary(entry => entry.Key, entry => entry.Value.AsObject()) :
             [];
         arguments[RequestContextKey] = request;
 

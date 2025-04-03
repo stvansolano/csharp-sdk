@@ -1,13 +1,19 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using ModelContextProtocol;
+using Microsoft.Extensions.Logging;
+using QuickstartWeatherServer.Tools;
 using System.Net.Http.Headers;
 
-var builder = Host.CreateEmptyApplicationBuilder(settings: null);
+var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddMcpServer()
     .WithStdioServerTransport()
-    .WithToolsFromAssembly();
+    .WithTools<WeatherTools>();
+
+builder.Logging.AddConsole(options =>
+{
+    options.LogToStandardErrorThreshold = LogLevel.Trace;
+});
 
 builder.Services.AddSingleton(_ =>
 {

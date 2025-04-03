@@ -26,6 +26,8 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
 
     public InMemoryTestSseServer(int port = 5000, ILogger<InMemoryTestSseServer>? logger = null)
     {
+        Port = port;
+
         _listener = new HttpListener();
         _listener.Prefixes.Add($"http://localhost:{port}/");
         _cts = new CancellationTokenSource();
@@ -34,6 +36,8 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
         _endpointPath = "/sse";
         _messagePath = "/message";
     }
+
+    public int Port { get; }
 
     /// <summary>
     /// This is to be able to use the full URL for the endpoint event.
@@ -191,7 +195,7 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
             string content = await reader.ReadToEndAsync(cancellationToken);
 
             var jsonRpcNotification = JsonSerializer.Deserialize<JsonRpcNotification>(content);
-            if (jsonRpcNotification != null && jsonRpcNotification.Method != "initialize")
+            if (jsonRpcNotification != null && jsonRpcNotification.Method != RequestMethods.Initialize)
             {
                 // Test server so just ignore notifications
 
@@ -209,7 +213,7 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
 
             if (jsonRpcRequest != null)
             {
-                if (jsonRpcRequest.Method == "initialize")
+                if (jsonRpcRequest.Method == RequestMethods.Initialize)
                 {
                     await HandleInitializationRequest(response, jsonRpcRequest);
                 }
@@ -266,7 +270,7 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
     {
         var errorResponse = new JsonRpcError
         {
-            Id = id ?? RequestId.FromString("error"),
+            Id = id ?? new RequestId("error"),
             JsonRpc = "2.0",
             Error = new JsonRpcErrorDetail
             {
@@ -289,7 +293,7 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
         var jsonRpcResponse = new JsonRpcResponse()
         {
             Id = jsonRpcRequest.Id,
-            Result = new InitializeResult()
+            Result = JsonSerializer.SerializeToNode(new InitializeResult
             {
                 ProtocolVersion = "2024-11-05",
                 Capabilities = new(),
@@ -298,7 +302,7 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
                     Name = "ExampleServer",
                     Version = "1.0.0"
                 }
-            }
+            })
         };
 
         // Echo back to the HTTP response
@@ -369,7 +373,7 @@ public sealed class InMemoryTestSseServer : IAsyncDisposable
         {
             JsonRpc = "2.0",
             Method = "test/notification",
-            Params = new { message = content }
+            Params = JsonSerializer.SerializeToNode(new { message = content }),
         };
 
         var serialized = JsonSerializer.Serialize(notification);

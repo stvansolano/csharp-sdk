@@ -1,7 +1,8 @@
-﻿using System.Threading.Channels;
-using ModelContextProtocol.Protocol.Messages;
+﻿using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Protocol.Types;
+using System.Text.Json;
+using System.Threading.Channels;
 
 namespace ModelContextProtocol.Tests.Utils;
 
@@ -39,9 +40,9 @@ public class TestServerTransport : ITransport
         SentMessages.Add(message);
         if (message is JsonRpcRequest request)
         {
-            if (request.Method == "roots/list")
+            if (request.Method == RequestMethods.RootsList)
                 await ListRoots(request, cancellationToken);
-            else if (request.Method == "sampling/createMessage")
+            else if (request.Method == RequestMethods.SamplingCreateMessage)
                 await Sampling(request, cancellationToken);
             else
                 await WriteMessageAsync(request, cancellationToken);
@@ -59,10 +60,10 @@ public class TestServerTransport : ITransport
         await WriteMessageAsync(new JsonRpcResponse
         {
             Id = request.Id,
-            Result = new ModelContextProtocol.Protocol.Types.ListRootsResult
+            Result = JsonSerializer.SerializeToNode(new ListRootsResult
             {
                 Roots = []
-            }
+            }),
         }, cancellationToken);
     }
 
@@ -71,7 +72,7 @@ public class TestServerTransport : ITransport
         await WriteMessageAsync(new JsonRpcResponse
         {
             Id = request.Id,
-            Result = new CreateMessageResult { Content = new(), Model = "model", Role = "role" }
+            Result = JsonSerializer.SerializeToNode(new CreateMessageResult { Content = new(), Model = "model", Role = "role" }),
         }, cancellationToken);
     }
 

@@ -1,11 +1,12 @@
-using ModelContextProtocol;
-using AspNetCoreSseServer;
+using TestServerWithHosting.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddMcpServer().WithToolsFromAssembly();
+builder.Services.AddMcpServer()
+    .WithTools<EchoTool>()
+    .WithTools<SampleLlmTool>();
+
 var app = builder.Build();
 
-app.MapGet("/", () => "Hello World!");
-app.MapMcpSse();
+app.MapMcp();
 
 app.Run();

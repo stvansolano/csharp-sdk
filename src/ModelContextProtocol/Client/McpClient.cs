@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Configuration;
 using ModelContextProtocol.Logging;
 using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
@@ -11,7 +10,7 @@ using System.Text.Json;
 namespace ModelContextProtocol.Client;
 
 /// <inheritdoc/>
-internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
+internal sealed class McpClient : McpEndpoint, IMcpClient
 {
     private readonly IClientTransport _clientTransport;
     private readonly McpClientOptions _options;
@@ -41,9 +40,14 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
                 throw new InvalidOperationException($"Sampling capability was set but it did not provide a handler.");
             }
 
-            SetRequestHandler<CreateMessageRequestParams, CreateMessageResult>(
-                "sampling/createMessage",
-                (request, ct) => samplingHandler(request, ct));
+            SetRequestHandler(
+                RequestMethods.SamplingCreateMessage,
+                (request, cancellationToken) => samplingHandler(
+                    request,
+                    request?.Meta?.ProgressToken is { } token ? new TokenProgress(this, token) : NullProgress.Instance,
+                    cancellationToken),
+                McpJsonUtilities.JsonContext.Default.CreateMessageRequestParams,
+                McpJsonUtilities.JsonContext.Default.CreateMessageResult);
         }
 
         if (options.Capabilities?.Roots is { } rootsCapability)
@@ -53,9 +57,11 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
                 throw new InvalidOperationException($"Roots capability was set but it did not provide a handler.");
             }
 
-            SetRequestHandler<ListRootsRequestParams, ListRootsResult>(
-                "roots/list",
-                (request, ct) => rootsHandler(request, ct));
+            SetRequestHandler(
+                RequestMethods.RootsList,
+                rootsHandler,
+                McpJsonUtilities.JsonContext.Default.ListRootsRequestParams,
+                McpJsonUtilities.JsonContext.Default.ListRootsResult);
         }
     }
 
@@ -80,30 +86,26 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
         {
             // Connect transport
             _sessionTransport = await _clientTransport.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            InitializeSession(_sessionTransport);
-            // We don't want the ConnectAsync token to cancel the session after we've successfully connected.
-            // The base class handles cleaning up the session in DisposeAsync without our help.
-            StartSession(fullSessionCancellationToken: CancellationToken.None);
+            StartSession(_sessionTransport);
 
             // Perform initialization sequence
             using var initializationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             initializationCts.CancelAfter(_options.InitializationTimeout);
 
-            try
-            {
-                // Send initialize request
-                var initializeResponse = await SendRequestAsync<InitializeResult>(
-                    new JsonRpcRequest
-                    {
-                        Method = "initialize",
-                        Params = new InitializeRequestParams()
-                        {
-                            ProtocolVersion = _options.ProtocolVersion,
-                            Capabilities = _options.Capabilities ?? new ClientCapabilities(),
-                            ClientInfo = _options.ClientInfo,
-                        }
-                    },
-                    initializationCts.Token).ConfigureAwait(false);
+        try
+        {
+            // Send initialize request
+            var initializeResponse = await this.SendRequestAsync(
+                RequestMethods.Initialize,
+                new InitializeRequestParams
+                {
+                    ProtocolVersion = _options.ProtocolVersion,
+                    Capabilities = _options.Capabilities ?? new ClientCapabilities(),
+                    ClientInfo = _options.ClientInfo
+                },
+                McpJsonUtilities.JsonContext.Default.InitializeRequestParams,
+                McpJsonUtilities.JsonContext.Default.InitializeResult,
+                cancellationToken: initializationCts.Token).ConfigureAwait(false);
 
                 // Store server information
                 _logger.ServerCapabilitiesReceived(EndpointName,
@@ -123,7 +125,7 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
 
                 // Send initialized notification
                 await SendMessageAsync(
-                    new JsonRpcNotification { Method = "notifications/initialized" },
+                    new JsonRpcNotification { Method = NotificationMethods.InitializedNotification },
                     initializationCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (initializationCts.IsCancellationRequested)
@@ -143,13 +145,14 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
     /// <inheritdoc/>
     public override async ValueTask DisposeUnsynchronizedAsync()
     {
-        if (_connectCts is not null)
-        {
-            await _connectCts.CancelAsync().ConfigureAwait(false);
-        }
-
         try
         {
+            if (_connectCts is not null)
+            {
+                await _connectCts.CancelAsync().ConfigureAwait(false);
+                _connectCts.Dispose();
+            }
+
             await base.DisposeUnsynchronizedAsync().ConfigureAwait(false);
         }
         finally
@@ -158,8 +161,6 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
             {
                 await _sessionTransport.DisposeAsync().ConfigureAwait(false);
             }
-
-            _connectCts?.Dispose();
         }
     }
 }

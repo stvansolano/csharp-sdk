@@ -19,6 +19,11 @@ public class McpServerToolTests
         Assert.Throws<ArgumentNullException>("method", () => McpServerTool.Create((MethodInfo)null!, typeof(object)));
         Assert.Throws<ArgumentNullException>("targetType", () => McpServerTool.Create(typeof(McpServerToolTests).GetMethod(nameof(Create_InvalidArgs_Throws))!, (Type)null!));
         Assert.Throws<ArgumentNullException>("method", () => McpServerTool.Create((Delegate)null!));
+
+        Assert.NotNull(McpServerTool.Create(typeof(DisposableToolType).GetMethod(nameof(DisposableToolType.InstanceMethod))!, new DisposableToolType()));
+        Assert.NotNull(McpServerTool.Create(typeof(DisposableToolType).GetMethod(nameof(DisposableToolType.StaticMethod))!));
+        Assert.Throws<ArgumentNullException>("target", () => McpServerTool.Create(typeof(DisposableToolType).GetMethod(nameof(DisposableToolType.InstanceMethod))!, target: null!));
+        Assert.Throws<ArgumentException>("target", () => McpServerTool.Create(typeof(DisposableToolType).GetMethod(nameof(DisposableToolType.StaticMethod))!, new DisposableToolType()));
     }
 
     [Fact]
@@ -40,20 +45,47 @@ public class McpServerToolTests
         Assert.Equal("42", result.Content[0].Text);
     }
 
-    [Fact]
-    public async Task SupportsServiceFromDI()
+    [Theory]
+    [InlineData(ServiceLifetime.Singleton)]
+    [InlineData(ServiceLifetime.Scoped)]
+    [InlineData(ServiceLifetime.Transient)]
+    public async Task SupportsServiceFromDI(ServiceLifetime injectedArgumentLifetime)
     {
-        MyService expectedMyService = new();
+        MyService singletonService = new();
 
         ServiceCollection sc = new();
-        sc.AddSingleton(expectedMyService);
+        switch (injectedArgumentLifetime)
+        {
+            case ServiceLifetime.Singleton:
+                sc.AddSingleton(singletonService);
+                break;
+
+            case ServiceLifetime.Scoped:
+                sc.AddScoped(_ => new MyService());
+                break;
+
+            case ServiceLifetime.Transient:
+                sc.AddTransient(_ => new MyService());
+                break;
+        }
+
+        sc.AddSingleton(services =>
+        {
+            return McpServerTool.Create((MyService actualMyService) =>
+            {
+                Assert.NotNull(actualMyService);
+                if (injectedArgumentLifetime == ServiceLifetime.Singleton)
+                {
+                    Assert.Same(singletonService, actualMyService);
+                }
+
+                return "42";
+            }, new() { Services = services });
+        });
+
         IServiceProvider services = sc.BuildServiceProvider();
 
-        McpServerTool tool = McpServerTool.Create((MyService actualMyService) =>
-        {
-            Assert.Same(expectedMyService, actualMyService);
-            return "42";
-        }, new() { Services = services });
+        McpServerTool tool = services.GetRequiredService<McpServerTool>();
 
         Assert.DoesNotContain("actualMyService", JsonSerializer.Serialize(tool.ProtocolTool.InputSchema));
 
@@ -338,6 +370,11 @@ public class McpServerToolTests
             }
 
             return this;
+        }
+
+        public static object StaticMethod()
+        {
+            return "42";
         }
     }
 

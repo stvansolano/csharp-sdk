@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol.Types;
 using ModelContextProtocol.Server;
 using ModelContextProtocol.Utils;
+using ModelContextProtocol.Utils.Json;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -132,9 +133,9 @@ internal static partial class TemporaryAIFunctionFactory
     /// <remarks>
     /// <para>
     /// Return values are serialized to <see cref="JsonElement"/> using <paramref name="options"/>'s
-    /// <see cref="AIFunctionFactoryOptions.SerializerOptions"/>. Arguments that are not already of the expected type are
+    /// <see cref="TemporaryAIFunctionFactoryOptions.SerializerOptions"/>. Arguments that are not already of the expected type are
     /// marshaled to the expected type via JSON and using <paramref name="options"/>'s
-    /// <see cref="AIFunctionFactoryOptions.SerializerOptions"/>. If the argument is a <see cref="JsonElement"/>,
+    /// <see cref="TemporaryAIFunctionFactoryOptions.SerializerOptions"/>. If the argument is a <see cref="JsonElement"/>,
     /// <see cref="JsonDocument"/>, or <see cref="JsonNode"/>, it is deserialized directly. If the argument is anything else unknown,
     /// it is round-tripped through JSON, serializing the object as JSON and then deserializing it to the expected type.
     /// </para>
@@ -201,9 +202,16 @@ internal static partial class TemporaryAIFunctionFactory
                 throw new ArgumentException("Open generic methods are not supported", nameof(method));
             }
 
-            if (!method.IsStatic && target is null)
+            if (method.IsStatic)
             {
-                throw new ArgumentNullException("Target must not be null for an instance method.", nameof(target));
+                if (target is not null)
+                {
+                    throw new ArgumentException("The specified method is a static method but the specified target is non-null.", nameof(target));
+                }
+            }
+            else if (target is null)
+            {
+                throw new ArgumentNullException(nameof(target), "The specified method is an instance method but the specified target is null.");
             }
 
             var functionDescriptor = ReflectionAIFunctionDescriptor.GetOrCreate(method, options);
@@ -469,7 +477,7 @@ internal static partial class TemporaryAIFunctionFactory
                     description: parameter.GetCustomAttribute<DescriptionAttribute>(inherit: true)?.Description,
                     hasDefaultValue: parameter.HasDefaultValue,
                     defaultValue: parameter.HasDefaultValue ? parameter.DefaultValue : null,
-                    serializerOptions), AIJsonUtilities.DefaultOptions.GetTypeInfo<JsonElement>());
+                    serializerOptions), McpJsonUtilities.JsonContext.Default.JsonElement);
 
                 parameterSchemas.Add(parameter.Name, parameterSchema);
                 if (!parameter.IsOptional)

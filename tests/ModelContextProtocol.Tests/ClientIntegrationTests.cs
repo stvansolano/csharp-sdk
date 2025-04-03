@@ -1,21 +1,20 @@
-﻿using ModelContextProtocol.Client;
-using Microsoft.Extensions.AI;
-using OpenAI;
-using ModelContextProtocol.Protocol.Types;
+﻿using Microsoft.Extensions.AI;
+using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol.Messages;
-using System.Text.Json;
-using ModelContextProtocol.Configuration;
 using ModelContextProtocol.Protocol.Transport;
+using ModelContextProtocol.Protocol.Types;
 using ModelContextProtocol.Tests.Utils;
+using OpenAI;
 using System.Text.Encodings.Web;
-using System.Text.Json.Serialization.Metadata;
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ModelContextProtocol.Tests;
 
 public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegrationTestFixture>
 {
-    private static readonly string? s_openAIKey = Environment.GetEnvironmentVariable("AI:OpenAI:ApiKey")!;
+    private static readonly string? s_openAIKey = Environment.GetEnvironmentVariable("AI:OpenAI:ApiKey");
 
     public static bool NoOpenAIKeySet => string.IsNullOrWhiteSpace(s_openAIKey);
 
@@ -69,7 +68,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
 
         // act
         await using var client = await _fixture.CreateClientAsync(clientId);
-        var tools = await client.ListToolsAsync(TestContext.Current.CancellationToken);
+        var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotEmpty(tools);
@@ -89,7 +88,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             {
                 ["message"] = "Hello MCP!"
             },
-            TestContext.Current.CancellationToken
+            cancellationToken: TestContext.Current.CancellationToken
         );
 
         // assert
@@ -107,7 +106,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
 
         // act
         await using var client = await _fixture.CreateClientAsync(clientId);
-        var aiFunctions = await client.ListToolsAsync(TestContext.Current.CancellationToken);
+        var aiFunctions = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
         var echo = aiFunctions.Single(t => t.Name == "echo");
         var result = await echo.InvokeAsync([new KeyValuePair<string, object?>("message", "Hello MCP!")], TestContext.Current.CancellationToken);
 
@@ -141,7 +140,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
 
         // act
         await using var client = await _fixture.CreateClientAsync(clientId);
-        var result = await client.GetPromptAsync("simple_prompt", null, TestContext.Current.CancellationToken);
+        var result = await client.GetPromptAsync("simple_prompt", null, cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
@@ -161,7 +160,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             { "temperature", "0.7" },
             { "style", "formal" }
         };
-        var result = await client.GetPromptAsync("complex_prompt", arguments, TestContext.Current.CancellationToken);
+        var result = await client.GetPromptAsync("complex_prompt", arguments, cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
@@ -177,7 +176,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
         // act
         await using var client = await _fixture.CreateClientAsync(clientId);
         await Assert.ThrowsAsync<McpClientException>(() =>
-            client.GetPromptAsync("non_existent_prompt", null, TestContext.Current.CancellationToken));
+            client.GetPromptAsync("non_existent_prompt", null, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -260,7 +259,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
         await using var client = await _fixture.CreateClientAsync(clientId);
         client.AddNotificationHandler(NotificationMethods.ResourceUpdatedNotification, (notification) =>
         {
-            var notificationParams = JsonSerializer.Deserialize<ResourceUpdatedNotificationParams>(notification.Params!.ToString() ?? string.Empty);
+            var notificationParams = JsonSerializer.Deserialize<ResourceUpdatedNotificationParams>(notification.Params);
             tcs.TrySetResult(true);
             return Task.CompletedTask;
         });
@@ -281,7 +280,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
         await using var client = await _fixture.CreateClientAsync(clientId);
         client.AddNotificationHandler(NotificationMethods.ResourceUpdatedNotification, (notification) =>
         {
-            var notificationParams = JsonSerializer.Deserialize<ResourceUpdatedNotificationParams>(notification.Params!.ToString() ?? string.Empty);
+            var notificationParams = JsonSerializer.Deserialize<ResourceUpdatedNotificationParams>(notification.Params);
             receivedNotification.TrySetResult(true);
             return Task.CompletedTask;
         });
@@ -356,7 +355,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             {
                 Sampling = new()
                 {
-                    SamplingHandler = (_, _) =>
+                    SamplingHandler = (_, _, _) =>
                     {
                         samplingHandlerCalls++;
                         return Task.FromResult(new CreateMessageResult
@@ -382,7 +381,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
                 ["prompt"] = "Test prompt",
                 ["maxTokens"] = 100
             },
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
@@ -430,7 +429,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
 
         // Verify we can send notifications without errors
         await client.SendNotificationAsync(NotificationMethods.RootsUpdatedNotification, cancellationToken: TestContext.Current.CancellationToken);
-        await client.SendNotificationAsync("test/notification", new { test = true }, TestContext.Current.CancellationToken);
+        await client.SendNotificationAsync("test/notification", new { test = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         // no response to check, if no exception is thrown, it's a success
@@ -468,7 +467,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
         var result = await client.CallToolAsync(
             "read_graph",
             new Dictionary<string, object?>(),
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         // assert
         Assert.NotNull(result);
@@ -486,7 +485,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             _fixture.EverythingServerConfig, 
             _fixture.DefaultOptions, 
             cancellationToken: TestContext.Current.CancellationToken);
-        var mappedTools = await client.ListToolsAsync(TestContext.Current.CancellationToken);
+        var mappedTools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         // Create the chat client.
         using IChatClient chatClient = new OpenAIClient(s_openAIKey).AsChatClient("gpt-4o-mini")
@@ -512,6 +511,9 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
     [Fact(Skip = "Requires OpenAI API Key", SkipWhen = nameof(NoOpenAIKeySet))]
     public async Task SamplingViaChatClient_RequestResponseProperlyPropagated()
     {
+        var samplingHandler = new OpenAIClient(s_openAIKey)
+            .AsChatClient("gpt-4o-mini")
+            .CreateSamplingHandler();
         await using var client = await McpClientFactory.CreateAsync(_fixture.EverythingServerConfig, new()
         {
             ClientInfo = new() { Name = nameof(SamplingViaChatClient_RequestResponseProperlyPropagated), Version = "1.0.0" },
@@ -519,7 +521,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             {
                 Sampling = new()
                 {
-                    SamplingHandler = new OpenAIClient(s_openAIKey).AsChatClient("gpt-4o-mini").CreateSamplingHandler(),
+                    SamplingHandler = samplingHandler,
                 },
             },
         }, cancellationToken: TestContext.Current.CancellationToken);
@@ -527,7 +529,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
         var result = await client.CallToolAsync("sampleLLM", new Dictionary<string, object?>()
         {
             ["prompt"] = "In just a few words, what is the most famous tower in Paris?",
-        }, TestContext.Current.CancellationToken);
+        }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.NotEmpty(result.Content);
@@ -540,22 +542,11 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
     [MemberData(nameof(GetClients))]
     public async Task SetLoggingLevel_ReceivesLoggingMessages(string clientId)
     {
-        // arrange
-        JsonSerializerOptions jsonSerializerOptions = new(JsonSerializerDefaults.Web)
-        {
-            TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-            Converters = { new JsonStringEnumConverter() },
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            NumberHandling = JsonNumberHandling.AllowReadingFromString,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
         TaskCompletionSource<bool> receivedNotification = new();
         await using var client = await _fixture.CreateClientAsync(clientId);
         client.AddNotificationHandler(NotificationMethods.LoggingMessageNotification, (notification) =>
         {
-            var loggingMessageNotificationParameters = JsonSerializer.Deserialize<LoggingMessageNotificationParams>(notification.Params!.ToString() ?? string.Empty,
-                jsonSerializerOptions);
+            var loggingMessageNotificationParameters = JsonSerializer.Deserialize<LoggingMessageNotificationParams>(notification.Params);
             if (loggingMessageNotificationParameters is not null)
             {
                 receivedNotification.TrySetResult(true);
