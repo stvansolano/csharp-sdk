@@ -209,7 +209,7 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
 
         // act
         await using var client = await GetClientAsync();
-        await Assert.ThrowsAsync<McpClientException>(() =>
+        await Assert.ThrowsAsync<McpException>(() =>
             client.GetPromptAsync("non_existent_prompt", null, cancellationToken: TestContext.Current.CancellationToken));
     }
 
@@ -278,6 +278,21 @@ public class SseServerIntegrationTests : LoggedTest, IClassFixture<SseServerInte
             var textContent = Assert.Single(result.Content, c => c.Type == "text");
             Assert.Equal($"Echo: Hello MCP! {i}", textContent.Text);
         }
+    }
+
+    [Fact]
+    public async Task EventSourceResponse_Includes_ExpectedHeaders()
+    {
+        using var httpClient = GetHttpClient();
+        using var sseResponse = await httpClient.GetAsync("", HttpCompletionOption.ResponseHeadersRead, TestContext.Current.CancellationToken);
+
+        sseResponse.EnsureSuccessStatusCode();
+
+        Assert.Equal("text/event-stream", sseResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("identity", sseResponse.Content.Headers.ContentEncoding.ToString());
+        Assert.NotNull(sseResponse.Headers.CacheControl);
+        Assert.True(sseResponse.Headers.CacheControl.NoStore);
+        Assert.True(sseResponse.Headers.CacheControl.NoCache);
     }
 
     [Fact]
