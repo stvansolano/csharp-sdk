@@ -1,7 +1,6 @@
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
-using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace QuickstartWeatherServer.Tools;
@@ -43,22 +42,17 @@ public sealed class WeatherTools
         [Description("Longitude of the location.")] double longitude)
     {
         using var jsonDocument = await client.ReadJsonDocumentAsync($"/points/{latitude},{longitude}");
-        var jsonElement = jsonDocument.RootElement;
-        var periods = jsonElement.GetProperty("properties").GetProperty("periods").EnumerateArray();
+        var properties = jsonDocument.RootElement.GetProperty("properties");
+        var forecastUrl = properties.GetProperty("forecast").GetString();
 
-        return string.Join("\n---\n",
-            periods.Select(period =>
-            {
-                return $"""
-                    Name: {period.GetProperty("name").GetString()}
-                    Start Time: {period.GetProperty("startTime").GetString()}
-                    End Time: {period.GetProperty("endTime").GetString()}
-                    Temperature: {period.GetProperty("temperature").GetInt32()}°F
-                    Wind Speed: {period.GetProperty("windSpeed").GetString()}
-                    Wind Direction: {period.GetProperty("windDirection").GetString()}
-                    Short Forecast: {period.GetProperty("shortForecast").GetString()}
-                    Detailed Forecast: {period.GetProperty("detailedForecast").GetString()}
-                    """;
-            }));
+        using var forecastDocument = await client.ReadJsonDocumentAsync(forecastUrl ?? $"/{properties.GetProperty("gridId")}/{properties.GetProperty("gridX")},{properties.GetProperty("gridY")}/forecast");
+        var periods = forecastDocument.RootElement.GetProperty("properties").GetProperty("periods").EnumerateArray();
+
+        return string.Join("\n---\n", periods.Select(period => $"""
+                {period.GetProperty("name").GetString()}
+                Temperature: {period.GetProperty("temperature").GetInt32()}°F
+                Wind: {period.GetProperty("windSpeed").GetString()} {period.GetProperty("windDirection").GetString()}
+                Forecast: {period.GetProperty("detailedForecast").GetString()}
+                """));
     }
 }
