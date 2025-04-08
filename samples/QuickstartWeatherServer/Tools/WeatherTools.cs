@@ -42,10 +42,10 @@ public sealed class WeatherTools
         [Description("Longitude of the location.")] double longitude)
     {
         using var jsonDocument = await client.ReadJsonDocumentAsync($"/points/{latitude},{longitude}");
-        var properties = jsonDocument.RootElement.GetProperty("properties");
-        var forecastUrl = properties.GetProperty("forecast").GetString();
+        var forecastUrl = jsonDocument.RootElement.GetProperty("properties").GetProperty("forecast").GetString()
+            ?? throw new Exception($"No forecast URL provided by {client.BaseAddress}points/{latitude},{longitude}");
 
-        using var forecastDocument = await client.ReadJsonDocumentAsync(forecastUrl ?? $"/{properties.GetProperty("gridId")}/{properties.GetProperty("gridX")},{properties.GetProperty("gridY")}/forecast");
+        using var forecastDocument = await client.ReadJsonDocumentAsync(forecastUrl);
         var periods = forecastDocument.RootElement.GetProperty("properties").GetProperty("periods").EnumerateArray();
 
         return string.Join("\n---\n", periods.Select(period => $"""
