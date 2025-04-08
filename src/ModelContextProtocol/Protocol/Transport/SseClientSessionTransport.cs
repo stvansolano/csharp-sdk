@@ -151,16 +151,14 @@ internal sealed class SseClientSessionTransport : TransportBase
     {
         try
         {
-            if (!_connectionCts.IsCancellationRequested)
-            {
-                await _connectionCts.CancelAsync().ConfigureAwait(false);
-                _connectionCts.Dispose();
-            }
+            await _connectionCts.CancelAsync().ConfigureAwait(false);
 
             if (_receiveTask != null)
             {
                 await _receiveTask.ConfigureAwait(false);
             }
+
+            _connectionCts.Dispose();
         }
         finally
         {
@@ -173,7 +171,7 @@ internal sealed class SseClientSessionTransport : TransportBase
     {
         try
         {
-            await CloseAsync();
+            await CloseAsync().ConfigureAwait(false);
         }
         catch (Exception)
         {

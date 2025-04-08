@@ -1,8 +1,10 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol.Messages;
@@ -10,6 +12,7 @@ using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Server;
 using ModelContextProtocol.Utils.Json;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 
 namespace Microsoft.AspNetCore.Builder;
@@ -23,24 +26,53 @@ public static class McpEndpointRouteBuilderExtensions
     /// Sets up endpoints for handling MCP HTTP Streaming transport.
     /// </summary>
     /// <param name="endpoints">The web application to attach MCP HTTP endpoints.</param>
-    /// <param name="runSession">Provides an optional asynchronous callback for handling new MCP sessions.</param>
+    /// <param name="pattern">The route pattern prefix to map to.</param>
+    /// <param name="configureOptionsAsync">Configure per-session options.</param>
+    /// <param name="runSessionAsync">Provides an optional asynchronous callback for handling new MCP sessions.</param>
     /// <returns>Returns a builder for configuring additional endpoint conventions like authorization policies.</returns>
-    public static IEndpointConventionBuilder MapMcp(this IEndpointRouteBuilder endpoints, Func<HttpContext, IMcpServer, CancellationToken, Task>? runSession = null)
+    public static IEndpointConventionBuilder MapMcp(
+        this IEndpointRouteBuilder endpoints,
+        [StringSyntax("Route")] string pattern = "",
+        Func<HttpContext, McpServerOptions, CancellationToken, Task>? configureOptionsAsync = null,
+        Func<HttpContext, IMcpServer, CancellationToken, Task>? runSessionAsync = null)
+        => endpoints.MapMcp(RoutePatternFactory.Parse(pattern), configureOptionsAsync, runSessionAsync);
+
+    /// <summary>
+    /// Sets up endpoints for handling MCP HTTP Streaming transport.
+    /// </summary>
+    /// <param name="endpoints">The web application to attach MCP HTTP endpoints.</param>
+    /// <param name="pattern">The route pattern prefix to map to.</param>
+    /// <param name="configureOptionsAsync">Configure per-session options.</param>
+    /// <param name="runSessionAsync">Provides an optional asynchronous callback for handling new MCP sessions.</param>
+    /// <returns>Returns a builder for configuring additional endpoint conventions like authorization policies.</returns>
+    public static IEndpointConventionBuilder MapMcp(this IEndpointRouteBuilder endpoints,
+        RoutePattern pattern,
+        Func<HttpContext, McpServerOptions, CancellationToken, Task>? configureOptionsAsync = null,
+        Func<HttpContext, IMcpServer, CancellationToken, Task>? runSessionAsync = null)
     {
         ConcurrentDictionary<string, SseResponseStreamTransport> _sessions = new(StringComparer.Ordinal);
 
         var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
-        var mcpServerOptions = endpoints.ServiceProvider.GetRequiredService<IOptions<McpServerOptions>>();
+        var optionsSnapshot = endpoints.ServiceProvider.GetRequiredService<IOptions<McpServerOptions>>();
+        var optionsFactory = endpoints.ServiceProvider.GetRequiredService<IOptionsFactory<McpServerOptions>>();
+        var hostApplicationLifetime = endpoints.ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
 
-        var routeGroup = endpoints.MapGroup("");
+        var routeGroup = endpoints.MapGroup(pattern);
 
         routeGroup.MapGet("/sse", async context =>
         {
-            var response = context.Response;
-            var requestAborted = context.RequestAborted;
+            // If the server is shutting down, we need to cancel all SSE connections immediately without waiting for HostOptions.ShutdownTimeout
+            // which defaults to 30 seconds.
+            using var sseCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, hostApplicationLifetime.ApplicationStopping);
+            var cancellationToken = sseCts.Token;
 
+            var response = context.Response;
             response.Headers.ContentType = "text/event-stream";
             response.Headers.CacheControl = "no-cache,no-store";
+
+            // Make sure we disable all response buffering for SSE
+            context.Response.Headers.ContentEncoding = "identity";
+            context.Features.GetRequiredFeature<IHttpResponseBodyFeature>().DisableBuffering();
 
             var sessionId = MakeNewSessionId();
             await using var transport = new SseResponseStreamTransport(response.Body, $"/message?sessionId={sessionId}");
@@ -49,19 +81,24 @@ public static class McpEndpointRouteBuilderExtensions
                 throw new Exception($"Unreachable given good entropy! Session with ID '{sessionId}' has already been created.");
             }
 
+            var options = optionsSnapshot.Value;
+            if (configureOptionsAsync is not null)
+            {
+                options = optionsFactory.Create(Options.DefaultName);
+                await configureOptionsAsync.Invoke(context, options, cancellationToken);
+            }
+
             try
             {
-                // Make sure we disable all response buffering for SSE
-                context.Response.Headers.ContentEncoding = "identity";
-                context.Features.GetRequiredFeature<IHttpResponseBodyFeature>().DisableBuffering();
-
-                var transportTask = transport.RunAsync(cancellationToken: requestAborted);
-                await using var server = McpServerFactory.Create(transport, mcpServerOptions.Value, loggerFactory, endpoints.ServiceProvider);
+                var transportTask = transport.RunAsync(cancellationToken);
 
                 try
                 {
-                    runSession ??= RunSession;
-                    await runSession(context, server, requestAborted);
+                    await using var mcpServer = McpServerFactory.Create(transport, options, loggerFactory, endpoints.ServiceProvider);
+                    context.Features.Set(mcpServer);
+
+                    runSessionAsync ??= RunSession;
+                    await runSessionAsync(context, mcpServer, cancellationToken);
                 }
                 finally
                 {
@@ -69,7 +106,7 @@ public static class McpEndpointRouteBuilderExtensions
                     await transportTask;
                 }
             }
-            catch (OperationCanceledException) when (requestAborted.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 // RequestAborted always triggers when the client disconnects before a complete response body is written,
                 // but this is how SSE connections are typically closed.

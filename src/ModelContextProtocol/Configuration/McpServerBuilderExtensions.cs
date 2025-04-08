@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Hosting;
 using ModelContextProtocol.Protocol.Transport;
@@ -288,15 +289,15 @@ public static partial class McpServerBuilderExtensions
     }
 
     /// <summary>
-    /// Sets the handler for get completion requests.
+    /// Sets the handler for completion complete requests.
     /// </summary>
     /// <param name="builder">The builder instance.</param>
     /// <param name="handler">The handler.</param>
-    public static IMcpServerBuilder WithGetCompletionHandler(this IMcpServerBuilder builder, Func<RequestContext<CompleteRequestParams>, CancellationToken, Task<CompleteResult>> handler)
+    public static IMcpServerBuilder WithCompleteHandler(this IMcpServerBuilder builder, Func<RequestContext<CompleteRequestParams>, CancellationToken, Task<CompleteResult>> handler)
     {
         Throw.IfNull(builder);
 
-        builder.Services.Configure<McpServerHandlers>(s => s.GetCompletionHandler = handler);
+        builder.Services.Configure<McpServerHandlers>(s => s.CompleteHandler = handler);
         return builder;
     }
 
@@ -348,19 +349,43 @@ public static partial class McpServerBuilderExtensions
     {
         Throw.IfNull(builder);
 
+        AddSingleSessionServerDependencies(builder.Services);
         builder.Services.AddSingleton<ITransport, StdioServerTransport>();
-        builder.Services.AddHostedService<StdioMcpServerHostedService>();
 
-        builder.Services.AddSingleton(services =>
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds a server transport that uses the specified input and output streams for communication.
+    /// </summary>
+    /// <param name="builder">The builder instance.</param>
+    /// <param name="inputStream">The input <see cref="Stream"/> to use as standard input.</param>
+    /// <param name="outputStream">The output <see cref="Stream"/> to use as standard output.</param>
+    public static IMcpServerBuilder WithStreamServerTransport(
+        this IMcpServerBuilder builder,
+        Stream inputStream,
+        Stream outputStream)
+    {
+        Throw.IfNull(builder);
+        Throw.IfNull(inputStream);
+        Throw.IfNull(outputStream);
+
+        AddSingleSessionServerDependencies(builder.Services);
+        builder.Services.AddSingleton<ITransport>(new StreamServerTransport(inputStream, outputStream));
+
+        return builder;
+    }
+
+    private static void AddSingleSessionServerDependencies(IServiceCollection services)
+    {
+        services.AddHostedService<SingleSessionMcpServerHostedService>();
+        services.TryAddSingleton(services =>
         {
             ITransport serverTransport = services.GetRequiredService<ITransport>();
             IOptions<McpServerOptions> options = services.GetRequiredService<IOptions<McpServerOptions>>();
             ILoggerFactory? loggerFactory = services.GetService<ILoggerFactory>();
-
             return McpServerFactory.Create(serverTransport, options.Value, loggerFactory, services);
         });
-
-        return builder;
     }
     #endregion
 }

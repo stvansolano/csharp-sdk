@@ -39,11 +39,17 @@ public class ServerCapabilities
     [JsonPropertyName("tools")]
     public ToolsCapability? Tools { get; set; }
 
+    /// <summary>
+    /// Present if the server supports argument autocompletion suggestions.
+    /// </summary>
+    [JsonPropertyName("completions")]
+    public CompletionsCapability? Completions { get; set; }
+
     /// <summary>Gets or sets notification handlers to register with the server.</summary>
     /// <remarks>
     /// When constructed, the server will enumerate these handlers, which may contain multiple handlers per key.
     /// The server will not re-enumerate the sequence.
     /// </remarks>
     [JsonIgnore]
-    public IEnumerable<KeyValuePair<string, Func<JsonRpcNotification, Task>>>? NotificationHandlers { get; set; }
+    public IEnumerable<KeyValuePair<string, Func<JsonRpcNotification, CancellationToken, Task>>>? NotificationHandlers { get; set; }
 }

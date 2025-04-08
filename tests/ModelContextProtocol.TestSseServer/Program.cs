@@ -1,4 +1,5 @@
-﻿using ModelContextProtocol.Protocol.Types;
+﻿using Microsoft.AspNetCore.Connections;
+using ModelContextProtocol.Protocol.Types;
 using ModelContextProtocol.Server;
 using Serilog;
 using System.Text;
@@ -327,8 +328,8 @@ public class Program
                     }
                     else if (request.Params.Name == "complex_prompt")
                     {
-                        string temperature = request.Params.Arguments?["temperature"]?.ToString() ?? "unknown";
-                        string style = request.Params.Arguments?["style"]?.ToString() ?? "unknown";
+                        string temperature = request.Params.Arguments?["temperature"].ToString() ?? "unknown";
+                        string style = request.Params.Arguments?["style"].ToString() ?? "unknown";
                         messages.Add(new PromptMessage()
                         {
                             Role = Role.User,
@@ -372,18 +373,34 @@ public class Program
         };
     }
 
-    public static async Task MainAsync(string[] args, ILoggerProvider? loggerProvider = null, CancellationToken cancellationToken = default)
+    public static async Task MainAsync(string[] args, ILoggerProvider? loggerProvider = null, IConnectionListenerFactory? kestrelTransport = null, CancellationToken cancellationToken = default)
     {
         Console.WriteLine("Starting server...");
 
-        int port = args.Length > 0 &&  uint.TryParse(args[0], out var parsedPort) ? (int)parsedPort : 3001;
-
-        var builder = WebApplication.CreateSlimBuilder(args);
-        builder.WebHost.ConfigureKestrel(options =>
+        var builder = WebApplication.CreateEmptyBuilder(new()
         {
-            options.ListenLocalhost(port);
+            Args = args,
         });
 
+        if (kestrelTransport is null)
+        {
+            int port = args.Length > 0 && uint.TryParse(args[0], out var parsedPort) ? (int)parsedPort : 3001;
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.ListenLocalhost(port);
+            });
+        }
+        else
+        {
+            // Add passed-in transport before calling UseKestrelCore() to avoid the SocketsHttpHandler getting added.
+            builder.Services.AddSingleton(kestrelTransport);
+        }
+
+        builder.WebHost.UseKestrelCore();
+        builder.Services.AddLogging();
+        builder.Services.AddRoutingCore();
+
+        builder.Logging.AddConsole();
         ConfigureSerilog(builder.Logging);
         if (loggerProvider is not null)
         {
@@ -393,6 +410,8 @@ public class Program
         builder.Services.AddMcpServer(ConfigureOptions);
 
         var app = builder.Build();
+        app.UseRouting();
+        app.UseEndpoints(_ => { });
 
         app.MapMcp();
 

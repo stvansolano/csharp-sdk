@@ -259,7 +259,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             {
                 NotificationHandlers =
                 [
-                    new(NotificationMethods.ResourceUpdatedNotification, notification =>
+                    new(NotificationMethods.ResourceUpdatedNotification, (notification, cancellationToken) =>
                     {
                         var notificationParams = JsonSerializer.Deserialize<ResourceUpdatedNotificationParams>(notification.Params);
                         tcs.TrySetResult(true);
@@ -289,7 +289,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             {
                 NotificationHandlers =
                 [
-                    new(NotificationMethods.ResourceUpdatedNotification, (notification) =>
+                    new(NotificationMethods.ResourceUpdatedNotification, (notification, cancellationToken) =>
                     {
                         var notificationParams = JsonSerializer.Deserialize<ResourceUpdatedNotificationParams>(notification.Params);
                         receivedNotification.TrySetResult(true);
@@ -314,13 +314,13 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
 
     [Theory]
     [MemberData(nameof(GetClients))]
-    public async Task GetCompletion_Stdio_ResourceReference(string clientId)
+    public async Task Complete_Stdio_ResourceReference(string clientId)
     {
         // arrange
 
         // act
         await using var client = await _fixture.CreateClientAsync(clientId);
-        var result = await client.GetCompletionAsync(new Reference
+        var result = await client.CompleteAsync(new Reference
         {
             Type = "ref/resource",
             Uri = "test://static/resource/1"
@@ -336,13 +336,13 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
 
     [Theory]
     [MemberData(nameof(GetClients))]
-    public async Task GetCompletion_Stdio_PromptReference(string clientId)
+    public async Task Complete_Stdio_PromptReference(string clientId)
     {
         // arrange
 
         // act
         await using var client = await _fixture.CreateClientAsync(clientId);
-        var result = await client.GetCompletionAsync(new Reference
+        var result = await client.CompleteAsync(new Reference
         {
             Type = "ref/prompt",
             Name = "irrelevant"
@@ -560,7 +560,7 @@ public class ClientIntegrationTests : LoggedTest, IClassFixture<ClientIntegratio
             {
                 NotificationHandlers =
                 [
-                    new(NotificationMethods.LoggingMessageNotification, (notification) =>
+                    new(NotificationMethods.LoggingMessageNotification, (notification, cancellationToken) =>
                     {
                         var loggingMessageNotificationParameters = JsonSerializer.Deserialize<LoggingMessageNotificationParams>(notification.Params);
                         if (loggingMessageNotificationParameters is not null)
