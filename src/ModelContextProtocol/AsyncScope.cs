@@ -124,7 +124,8 @@ public class Agent : IAsyncDisposable
         _logger?.LogInformation("Running prompt with model {ModelId}: {Prompt}", _modelId, prompt);
         
         // Create a client for the AI model based on the model ID
-        await using var aiClient = await CreateModelClientAsync(_modelId);
+        //await using 
+        var aiClient = await CreateModelClientAsync(_modelId);
 
         // Prepare chat messages
         var messages = new List<ChatMessage>
@@ -151,9 +152,15 @@ public class Agent : IAsyncDisposable
         
         return new AgentResult
         {
-            Data = response,
-            ToolCalls = aiClient.ToolCalls?.ToList() ?? new List<object>()
+            Data = response.ToString(),
+            //Data = response,
+            //ToolCalls = aiClient.ToolCalls?.ToList() ?? new List<object>()
         };
+    }
+
+    private Task<IChatClient> CreateModelClientAsync(string modelId)
+    {
+        throw new NotImplementedException();
     }
 
     /// <summary>

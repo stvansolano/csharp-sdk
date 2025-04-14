@@ -113,8 +113,8 @@ public class McpServerStdio : IDisposable, IAsyncDisposable
             // Create transport for communication with the process
             var transport = new StdioServerTransport($"External Process ({_command})")
             {
-                StandardInput = _process.StandardInput,
-                StandardOutput = _process.StandardOutput
+                //StandardInput = _process.StandardInput,
+                //StandardOutput = _process.StandardOutput
             };
 
             // Create the MCP server with the transport

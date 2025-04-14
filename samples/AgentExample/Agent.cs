@@ -1,96 +1,177 @@
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol.Transport;
-using ModelContextProtocol.Server;
 
 namespace AgentExample;
 
 /// <summary>
-/// Represents an Agent that can interact with MCP servers and AI models.
+/// Represents an Agent that can interact with tools and AI models.
 /// </summary>
-public class Agent : IAsyncDisposable
+public class Agent // : IAsyncDisposable
 {
-    private readonly string _modelId;
+    /*
     private readonly IList<McpServerStdio> _mcpServers;
     private readonly IList<IMcpClient> _clients = new List<IMcpClient>();
     private readonly ILogger? _logger;
-    
-    public Agent(string modelId, IList<McpServerStdio>? mcpServers = null)
-    {
-        _logger = LoggerFactory.Create(builder =>
-        {
-            builder
-                .AddConsole()
-                .SetMinimumLevel(LogLevel.Debug);
-        }).CreateLogger<Agent>();
+    */
+    private readonly string modelId;
+    private readonly string systemPrompt;
+    private readonly List<ITool> tools;
+    private readonly IChatClient client;
 
-        _modelId = modelId ?? throw new ArgumentNullException(nameof(modelId));
-        _mcpServers = mcpServers ?? new List<McpServerStdio>();
+    public Agent(string modelId, string systemPrompt, List<ITool> tools, IChatClient client)
+    {
+        this.modelId = modelId;
+        this.systemPrompt = systemPrompt;
+        this.tools = tools;
+        this.client = client;
     }
 
     /// <summary>
     /// Gets the ID of the AI model being used.
     /// </summary>
-    public string ModelId => _modelId;
+    public string ModelId => modelId;
 
-    /// <summary>
-    /// Gets the MCP servers associated with this agent.
-    /// </summary>
-    public IReadOnlyList<McpServerStdio> McpServers => _mcpServers.ToList().AsReadOnly();
-
-    /// <summary>
-    /// Gets the MCP clients connected to the servers.
-    /// </summary>
-    public IReadOnlyList<IMcpClient> Clients => _clients.ToList().AsReadOnly();
-
-    /// <summary>
-    /// Adds an MCP server to the agent.
-    /// </summary>
-    /// <param name="server">The server to add.</param>
-    public void AddMcpServer(McpServerStdio server)
+    public async Task<ChatResponse> Chat(string message, ChatOptions chatOptions)
     {
-        _mcpServers.Add(server ?? throw new ArgumentNullException(nameof(server)));
+        // Call the AI model with the provided input and options
+        var result = await this.client.GetResponseAsync(new List<ChatMessage>
+        {
+            new(ChatRole.System, systemPrompt),
+            new(ChatRole.User, message)
+        }, chatOptions);
+
+        return result;
     }
 
-    /// <summary>
-    /// Creates an asynchronous scope that starts all the MCP servers.
-    /// </summary>
-    /// <returns>An <see cref="AsyncScope"/> that manages the lifetime of the MCP servers.</returns>
-    public AsyncScope RunMcpServers(Dictionary<string, string> transportOptions)
-    {
-        return new AsyncScope(async () =>
+    /* 
+        /// <summary>
+        /// Gets the MCP servers associated with this agent.
+        /// </summary>
+        public IReadOnlyList<McpServerStdio> McpServers => _mcpServers.ToList().AsReadOnly();
+
+        /// <summary>
+        /// Gets the MCP clients connected to the servers.
+        /// </summary>
+        public IReadOnlyList<IMcpClient> Clients => _clients.ToList().AsReadOnly();
+
+        /// <summary>
+        /// Adds an MCP server to the agent.
+        /// </summary>
+        /// <param name="server">The server to add.</param>
+        public void AddMcpServer(McpServerStdio server)
         {
-            // Start all the MCP servers
-            _logger?.LogInformation("Starting {Count} MCP servers", _mcpServers.Count);
-            
-            List<Task> startTasks = new();
-            foreach (var server in _mcpServers)
-            {
-                startTasks.Add(server.StartAsync());
-            }
+            _mcpServers.Add(server ?? throw new ArgumentNullException(nameof(server)));
+        }
 
-            // Wait for all servers to start
-            await Task.WhenAll(startTasks);
-            _logger?.LogInformation("All MCP servers started successfully");
-
-            // Connect clients to each server
-            foreach (var server in _mcpServers)
+        /// <summary>
+        /// Creates an asynchronous scope that starts all the MCP servers.
+        /// </summary>
+        /// <returns>An <see cref="AsyncScope"/> that manages the lifetime of the MCP servers.</returns>
+        public AsyncScope RunMcpServers(Dictionary<string, string> transportOptions)
+        {
+            return new AsyncScope(async () =>
             {
-                var client = await McpClientFactory.CreateAsync(new()
+                // Start all the MCP servers
+                _logger?.LogInformation("Starting {Count} MCP servers", _mcpServers.Count);
+
+                List<Task> startTasks = new();
+                foreach (var server in _mcpServers)
                 {
-                    Id = "Agent",
-                    Name = "Agent",
-                    TransportType = TransportTypes.StdIo,
-                    TransportOptions = transportOptions
-                });
-                
-                _clients.Add(client);
-            }
-        }, 
-        async () =>
+                    startTasks.Add(server.StartAsync());
+                }
+
+                // Wait for all servers to start
+                await Task.WhenAll(startTasks);
+                _logger?.LogInformation("All MCP servers started successfully");
+
+                // Connect clients to each server
+                foreach (var server in _mcpServers)
+                {
+                    var client = await McpClientFactory.CreateAsync(new()
+                    {
+                        Id = "Agent",
+                        Name = "Agent",
+                        TransportType = TransportTypes.StdIo,
+                        TransportOptions = transportOptions
+                    });
+
+                    _clients.Add(client);
+                }
+            }, 
+            async () =>
+            {
+                // Cleanup clients
+                foreach (var client in _clients)
+                {
+                    if (client is IAsyncDisposable asyncDisposable)
+                    {
+                        await asyncDisposable.DisposeAsync();
+                    }
+                }
+                _clients.Clear();
+
+                // Cleanup servers
+                foreach (var server in _mcpServers)
+                {
+                    await server.DisposeAsync();
+                }
+
+                _logger?.LogInformation("All MCP servers stopped");
+            });
+        }
+
+        /// <summary>
+        /// Runs a prompt against the AI model with the connected MCP servers providing tools.
+        /// </summary>
+        /// <param name="prompt">The prompt to send to the model.</param>
+        /// <param name="options">Optional ChatOptions to configure the request.</param>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>The result from the AI model.</returns>
+        public async Task<AgentResult> RunAsync(string prompt, ChatOptions? options = null,  CancellationToken cancellationToken = default)
         {
-            // Cleanup clients
+            _logger?.LogInformation($"Running prompt with model {ModelId}: {prompt}", modelId, prompt);
+
+            // Prepare chat messages
+            var messages = new List<ChatMessage>
+            {
+                new(ChatRole.User, prompt)
+            };
+
+            // Prepare options with tools from all connected MCP clients
+            var chatOptions = options ?? new ChatOptions();
+            chatOptions.Tools ??= new List<AITool>();
+
+            // Add tools from all clients
+            foreach (var client in _clients)
+            {
+                var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
+                foreach (var tool in tools)
+                {
+                    chatOptions.Tools.Add(tool);
+                }
+            }
+
+            // Call LLM model with Microsoft.Extensions.AI.OpenAI package and send the result back.
+            var chatClient = new OpenAIClient(Environment.GetEnvironmentVariable("OPENAI_API_KEY"))
+                .AsChatClient(ModelId)
+                .AsBuilder()
+                .UseFunctionInvocation()
+                .Build();
+
+            var result = await chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);
+
+            return new AgentResult
+            {
+                Data = result,
+                ToolCalls = chatOptions.Tools
+            };
+        }
+
+        /// <summary>
+        /// Disposes resources used by the agent.
+        /// </summary>
+        public async ValueTask DisposeAsync()
+        {
+            // Dispose all clients
             foreach (var client in _clients)
             {
                 if (client is IAsyncDisposable asyncDisposable)
@@ -100,84 +181,13 @@ public class Agent : IAsyncDisposable
             }
             _clients.Clear();
 
-            // Cleanup servers
+            // Dispose all servers
             foreach (var server in _mcpServers)
             {
                 await server.DisposeAsync();
             }
-            
-            _logger?.LogInformation("All MCP servers stopped");
-        });
-    }
-
-    /// <summary>
-    /// Runs a prompt against the AI model with the connected MCP servers providing tools.
-    /// </summary>
-    /// <param name="prompt">The prompt to send to the model.</param>
-    /// <param name="options">Optional ChatOptions to configure the request.</param>
-    /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>The result from the AI model.</returns>
-    public async Task<AgentResult> RunAsync(string prompt, ChatOptions? options = null,  CancellationToken cancellationToken = default)
-    {
-        _logger?.LogInformation($"Running prompt with model {ModelId}: {prompt}", _modelId, prompt);
-        
-        // Prepare chat messages
-        var messages = new List<ChatMessage>
-        {
-            new(ChatRole.User, prompt)
-        };
-
-        // Prepare options with tools from all connected MCP clients
-        var chatOptions = options ?? new ChatOptions();
-        chatOptions.Tools ??= new List<AITool>();
-        
-        // Add tools from all clients
-        foreach (var client in _clients)
-        {
-            var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
-            foreach (var tool in tools)
-            {
-                chatOptions.Tools.Add(tool);
-            }
         }
-
-        // Call LLM model with Microsoft.Extensions.AI.OpenAI package and send the result back.
-        var chatClient = new OpenAIClient(Environment.GetEnvironmentVariable("OPENAI_API_KEY"))
-            .AsChatClient(ModelId)
-            .AsBuilder()
-            .UseFunctionInvocation()
-            .Build();
-
-        var result = await chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);
-
-        return new AgentResult
-        {
-            Data = result,
-            ToolCalls = chatOptions.Tools
-        };
-    }
-
-    /// <summary>
-    /// Disposes resources used by the agent.
-    /// </summary>
-    public async ValueTask DisposeAsync()
-    {
-        // Dispose all clients
-        foreach (var client in _clients)
-        {
-            if (client is IAsyncDisposable asyncDisposable)
-            {
-                await asyncDisposable.DisposeAsync();
-            }
-        }
-        _clients.Clear();
-
-        // Dispose all servers
-        foreach (var server in _mcpServers)
-        {
-            await server.DisposeAsync();
-        }
-    }
+        */
 }
 
 /// <summary>
