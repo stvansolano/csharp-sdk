@@ -45,7 +45,8 @@ public class Program
             */
         const string modelId = "gpt-4o-mini";
         
-        var chatClient = new OpenAIClient(Environment.GetEnvironmentVariable("OPENAI_API_KEY"))
+        using IChatClient chatClient =
+            new OpenAIClient(Environment.GetEnvironmentVariable("OPENAI_API_KEY"))
             .AsChatClient(modelId)
             .AsBuilder()
             .UseFunctionInvocation()
@@ -57,6 +58,7 @@ public class Program
             MaxOutputTokens = 1000,
             Temperature = 0.7f,
             Tools = new List<AITool> { new WeatherTool() },
+            //ConversationToolChoice = ConversationToolChoice.Auto,
             //Tools = await mcpClient.ListToolsAsync()
 
         };

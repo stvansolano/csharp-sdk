@@ -1,4 +1,6 @@
 using Microsoft.Extensions.AI;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AgentExample;
 
@@ -15,14 +17,14 @@ public class Agent // : IAsyncDisposable
     private readonly string modelId;
     private readonly string systemPrompt;
     private readonly List<ITool> tools;
-    private readonly IChatClient client;
+    private readonly IChatClient chatClient;
 
-    public Agent(string modelId, string systemPrompt, List<ITool> tools, IChatClient client)
+    public Agent(string modelId, string systemPrompt, List<ITool> tools, IChatClient chatClient)
     {
         this.modelId = modelId;
         this.systemPrompt = systemPrompt;
         this.tools = tools;
-        this.client = client;
+        this.chatClient = chatClient;
     }
 
     /// <summary>
@@ -33,6 +35,7 @@ public class Agent // : IAsyncDisposable
     public async Task<ChatResponse> Chat(string message, ChatOptions chatOptions)
     {
         // Call the AI model with the provided input and options
+        /*
         var result = await this.client.GetResponseAsync(new List<ChatMessage>
         {
             new(ChatRole.System, systemPrompt),
@@ -40,6 +43,38 @@ public class Agent // : IAsyncDisposable
         }, chatOptions);
 
         return result;
+        */
+        List<ChatMessage> messages = [];
+        messages.Add(new(ChatRole.System, systemPrompt));
+        messages.Add(new(ChatRole.User, message));
+
+        Console.WriteLine($"Options: {string.Join(",", chatOptions.Tools?.Select(t => t.Name) ?? new List<string> { "EMPTY"})}");
+
+        List<ChatResponseUpdate> updates = [];
+        var _tools = chatOptions.Tools ?? new List<AITool>();
+        if (_tools.Any() == false)
+        {
+            Console.WriteLine("No tools available");
+        }
+        await foreach (var update in this.chatClient.GetStreamingResponseAsync(messages, new ChatOptions { Tools = [.. _tools] }, CancellationToken.None))
+        {
+            // Process each update as it arrives
+            if (update is ChatResponseUpdate chatUpdate)
+            {
+                updates.Add(chatUpdate);
+                Console.WriteLine(chatUpdate.ToString());
+            }
+        }
+
+        // Combine updates into a single response
+        var finalMessage = string.Join("", updates.Select(u => u.Contents.ToString())); 
+        var finalChatMessage = new ChatMessage(ChatRole.Assistant, finalMessage);
+
+        // Add the final message to the conversation
+        messages.Add(finalChatMessage);
+
+        // Return a ChatResponse object
+        return new ChatResponse(messages);
     }
 
     /* 
@@ -231,4 +266,9 @@ public class AsyncScope : IAsyncDisposable
     {
         await _cleanup();
     }
+}
+
+[JsonSerializable(typeof(ChatOptions))]
+public partial class SerializationContext : JsonSerializerContext
+{
 }
